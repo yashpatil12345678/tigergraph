@@ -1,0 +1,22 @@
+export const ACTIONS = ['ALLOW_TRANSACTION','DECLINE_TRANSACTION','MONITOR_CARD','MONITOR_CONNECTED_CARDS','WARN_CUSTOMER','VERIFY_WITH_CUSTOMER','STEP_UP_AUTH','BLOCK_CARD','BLOCK_ALL_CARDS','GENERATE_REPORT','CREATE_CASE','FILE_REPORT','ESCALATE_TO_ANALYST','CLOSE_NO_FRAUD'] as const
+export type Action = typeof ACTIONS[number]
+export type ApprovalRoute = 'AUTO' | 'L1' | 'L2'
+export type Verdict = 'fraud' | 'legitimate' | 'uncertain'
+export type Pattern = 'card_testing' | 'card_not_present_fraud' | 'card_not_present_new_device' | 'out_of_region_use' | 'account_takeover' | 'undocumented' | 'none'
+export type EvidenceSource = 'transaction' | 'behavior' | 'device' | 'identity' | 'location' | 'email' | 'graph' | 'historical_case' | 'policy' | 'regulatory_reference' | 'system_assumption'
+export interface Evidence { evidence_id: string; claim: string; source: EvidenceSource; ref: string; entity_ids: string[]; confidence: number; relevance: number; context?: string }
+export interface EvidenceRequest { type: string; reason: string; expected_decision_impact: string; simulated: boolean }
+export interface ActionDecision { action: Action; route: ApprovalRoute; reason: string; policy_rule: string; status: 'executed' | 'approval_required' | 'recommended'; evidence_ids: string[] }
+export interface InvestigationInput { case_id: string; customer_id: string; card_id: string; flagged_transaction_id: number; transaction_amount: number; risk_score: number; channel: 'online' | 'in_person'; device_shared?: boolean; burst_count?: number; customer_response?: 'denied' | 'confirmed' | 'no_reply' }
+export interface InvestigationResult { case_id: string; case: { status: 'open'|'closed_fraud'|'closed_legitimate'|'escalated'; verdict: Verdict; fraud_probability: number; pattern: Pattern; pattern_description?: string; affected_txn_ids: number[]; first_suspicious_txn_id: number; connected_card_ids: string[]; connected_device_profiles: string[]; exposure_usd: number; evidence: Evidence[]; similar_prior_cases: Array<{case_id:string; outcome:string; pattern:string; relevance:string}>; summary: string; written_to_graph: boolean; graph_case_id: string }; evidence_requests: EvidenceRequest[]; next_best_actions: { initial: ActionDecision[]; final: ActionDecision[]; what_changed: string }; sar: { file: boolean; reason: string; narrative: string; subjects: string[]; total_amount_usd: number; activity_dates: string[] }; stop_reason: string; tool_calls: Array<{name:string; input:Record<string,unknown>; status:'success'|'unavailable'; provenance:string}>; tokens: number; latency_s: number }
+export interface GraphNode { id: string; label: string; type: string; risk?: string }
+export interface GraphEdge { from: string; to: string; label: string }
+export interface GraphSnapshot { nodes: GraphNode[]; edges: GraphEdge[] }
+export const emptySar = () => ({ file:false, reason:'', narrative:'', subjects:[], total_amount_usd:0, activity_dates:[] })
+export const routeFor = (action: Action, exposure: number): ApprovalRoute => action === 'BLOCK_ALL_CARDS' || action === 'FILE_REPORT' || (action === 'BLOCK_CARD' && exposure > 2500) ? 'L2' : (action === 'DECLINE_TRANSACTION' || action === 'BLOCK_CARD') ? 'L1' : 'AUTO'
+export const statusFor = (route: ApprovalRoute): ActionDecision['status'] => route === 'AUTO' ? 'executed' : 'approval_required'
+export const validAction = (value: string): value is Action => (ACTIONS as readonly string[]).includes(value)
+export const validPattern = (value: string): value is Pattern => ['card_testing','card_not_present_fraud','card_not_present_new_device','out_of_region_use','account_takeover','undocumented','none'].includes(value)
+export const calculateExposure = (amounts: number[]) => Number(amounts.reduce((sum, amount) => sum + Math.abs(amount), 0).toFixed(2))
+export const makeDecision = (action: Action, reason: string, rule: string, evidence_ids: string[], exposure: number): ActionDecision => { const route = routeFor(action, exposure); return { action, route, reason, policy_rule: rule, status: statusFor(route), evidence_ids } }
+export default { ACTIONS, emptySar, routeFor, statusFor, validAction, validPattern, calculateExposure, makeDecision }
