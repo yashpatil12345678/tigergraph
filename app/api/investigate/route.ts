@@ -5,14 +5,15 @@ import type { InvestigationInput } from '@/lib/fraud/types'
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<InvestigationInput>
-    const required = ['case_id', 'customer_id', 'card_id', 'flagged_transaction_id', 'transaction_amount', 'risk_score', 'channel'] as const
+    const required = ['case_id', 'customer_id', 'card_id'] as const
     const missing = required.filter((key) => body[key] === undefined || body[key] === null || body[key] === '')
-    if (missing.length) return NextResponse.json({ error: `Missing required fields: ${missing.join(', ')}` }, { status: 400 })
-    if (!['online', 'in_person'].includes(String(body.channel))) return NextResponse.json({ error: 'channel must be online or in_person' }, { status: 400 })
+    const flaggedTransactionId = body.flagged_transaction_id ?? (body as { flagged_txn_id?: number }).flagged_txn_id
+    if (missing.length || flaggedTransactionId === undefined || flaggedTransactionId === null) return NextResponse.json({ error: `Missing required case fields: ${[...missing, flaggedTransactionId == null ? 'flagged_txn_id' : ''].filter(Boolean).join(', ')}` }, { status: 400 })
+    const channel = body.channel && ['online', 'in_person'].includes(String(body.channel)) ? body.channel as InvestigationInput['channel'] : 'online'
     const result = investigate({
       case_id: String(body.case_id), customer_id: String(body.customer_id), card_id: String(body.card_id),
-      flagged_transaction_id: Number(body.flagged_transaction_id), transaction_amount: Number(body.transaction_amount),
-      risk_score: Number(body.risk_score), channel: body.channel as InvestigationInput['channel'],
+      flagged_transaction_id: Number(flaggedTransactionId), transaction_amount: Number(body.transaction_amount ?? 0),
+      risk_score: Number(body.risk_score ?? 0), channel,
       device_shared: Boolean(body.device_shared), burst_count: Number(body.burst_count ?? 1),
       customer_response: body.customer_response,
     })
