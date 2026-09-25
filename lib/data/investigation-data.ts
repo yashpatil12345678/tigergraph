@@ -44,11 +44,19 @@ function readCsv(fileName: string): { rows: CsvRecord[]; available: boolean } {
   cache.set(filePath, { mtimeMs: stat.mtimeMs, rows }); return { rows, available: true }
 }
 
+function readTransactions(): { rows: CsvRecord[]; available: boolean } {
+  const combined = readCsv('transactions.csv')
+  if (combined.available) return combined
+  const parts = ['transactions_part_01.csv', 'transactions_part_02.csv', 'transactions_part_03.csv'].map(readCsv)
+  if (parts.some((part) => !part.available)) return { rows: [], available: false }
+  return { rows: parts.flatMap((part) => part.rows), available: true }
+}
+
 const normalize = (value: unknown) => String(value ?? '').trim()
 const numeric = (value: string) => value === '' ? undefined : Number(value)
 
 export function getInvestigationEvidence(input: { case_id: string; customer_id: string; card_id: string; flagged_txn_id: number }): InvestigationEvidence {
-  const transactions = readCsv('transactions.csv'); const identity = readCsv('identity.csv'); const history = readCsv('closed_cases_history.csv'); const casePack = readCsv('case_pack.csv')
+  const transactions = readTransactions(); const identity = readCsv('identity.csv'); const history = readCsv('closed_cases_history.csv'); const casePack = readCsv('case_pack.csv')
   const flaggedId = String(input.flagged_txn_id)
   const transactionRows = transactions.rows as TransactionRecord[]
   const flagged = transactionRows.find((row) => normalize(row.TransactionID) === flaggedId) ?? null
@@ -74,9 +82,11 @@ export function transactionToInvestigationFields(transaction: TransactionRecord 
 }
 
 export function dataFilesStatus() {
-  const files = ['transactions.csv', 'identity.csv', 'closed_cases_history.csv', 'case_pack.csv']
-  const statuses = files.map((file) => ({ file, available: fs.existsSync(path.join(dataDirectory(), file)), directory: dataDirectory() }))
-  return { status: statuses.every((item) => item.available) ? 'DATA_READY' as const : 'DATA_INCOMPLETE' as const, directory: dataDirectory(), files: statuses }
+  const transactionParts = ['transactions_part_01.csv', 'transactions_part_02.csv', 'transactions_part_03.csv']
+  const transactionReady = fs.existsSync(path.join(dataDirectory(), 'transactions.csv')) || transactionParts.every((file) => fs.existsSync(path.join(dataDirectory(), file)))
+  const files = [...transactionParts, 'identity.csv', 'closed_cases_history.csv', 'case_pack.csv']
+  const statuses = files.map((file) => ({ file, available: file.startsWith('transactions_part_') ? fs.existsSync(path.join(dataDirectory(), file)) : fs.existsSync(path.join(dataDirectory(), file)), directory: dataDirectory() }))
+  return { status: transactionReady && statuses.filter((item) => !item.file.startsWith('transactions_part_')).every((item) => item.available) ? 'DATA_READY' as const : 'DATA_INCOMPLETE' as const, directory: dataDirectory(), files: [{ file: 'transactions.csv (logical)', available: transactionReady, directory: dataDirectory() }, ...statuses.filter((item) => !item.file.startsWith('transactions_part_'))] }
 }
 
 export function validateEvidenceReferences(evidence: InvestigationEvidence) {

@@ -4,8 +4,10 @@ import path from 'node:path'
 const root = process.cwd()
 const casesDir = path.join(root, 'cases')
 const dataDir = process.env.INVESTIGATION_DATA_DIR ? path.resolve(process.env.INVESTIGATION_DATA_DIR) : path.join(root, 'data')
-const requiredDatasets = ['transactions.csv', 'identity.csv', 'closed_cases_history.csv', 'case_pack.csv']
-for (const dataset of requiredDatasets) if (!fs.existsSync(path.join(dataDir, dataset))) fail(`DATA_INCOMPLETE: missing ${dataset} in ${dataDir}`)
+const transactionParts = ['transactions_part_01.csv', 'transactions_part_02.csv', 'transactions_part_03.csv']
+const hasTransactions = fs.existsSync(path.join(dataDir, 'transactions.csv')) || transactionParts.every((file) => fs.existsSync(path.join(dataDir, file)))
+if (!hasTransactions) fail(`DATA_INCOMPLETE: missing transactions.csv or all transaction parts in ${dataDir}`)
+for (const dataset of ['identity.csv', 'closed_cases_history.csv', 'case_pack.csv']) if (!fs.existsSync(path.join(dataDir, dataset))) fail(`DATA_INCOMPLETE: missing ${dataset} in ${dataDir}`)
 const expectedIds = Array.from({ length: 20 }, (_, index) => `HHG-${String(index + 1).padStart(3, '0')}`)
 const statuses = new Set(['open', 'closed_fraud', 'closed_legitimate', 'escalated'])
 const verdicts = new Set(['fraud', 'legitimate', 'uncertain'])
