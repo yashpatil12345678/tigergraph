@@ -1,71 +1,24 @@
 import 'server-only'
 
-export type TigerGraphStatus = 'connected' | 'not_configured' | 'connection_failed'
-
-export type TigerGraphConfig = {
-  host: string
-  graphName: string
-  apiToken?: string
-  username?: string
-  password?: string
-}
-
-export type GraphEvidence = {
-  source: 'TigerGraph'
-  status: 'available' | 'unavailable'
-  query: string
-  entity_ids: string[]
-  claim?: string
-  evidence?: unknown
-  error?: string
-}
+export type TigerGraphStatus = 'UNCONFIGURED' | 'CONFIGURED_BUT_UNREACHABLE' | 'AUTHENTICATED' | 'ERROR'
+export type TigerGraphConfig = { host: string; graphName: string; apiToken?: string; username?: string; password?: string }
+export type GraphEvidence = { source: 'TigerGraph'; status: 'available' | 'unavailable'; query: string; entity_ids: string[]; claim?: string; evidence?: unknown; error?: string }
 
 function config(): TigerGraphConfig | null {
-  const host = process.env.TIGERGRAPH_HOST?.trim()
-  const graphName = process.env.TIGERGRAPH_GRAPH_NAME?.trim()
+  const host = process.env.TIGERGRAPH_HOST?.trim(); const graphName = (process.env.TIGERGRAPH_GRAPH_NAME ?? process.env.TIGERGRAPH_GRAPH)?.trim()
   if (!host || !graphName) return null
-  return { host: host.replace(/\/$/, ''), graphName, apiToken: process.env.TIGERGRAPH_API_TOKEN, username: process.env.TIGERGRAPH_USERNAME, password: process.env.TIGERGRAPH_PASSWORD }
+  return { host: host.replace(/\/$/, ''), graphName, apiToken: process.env.TIGERGRAPH_API_TOKEN ?? process.env.TIGERGRAPH_TOKEN, username: process.env.TIGERGRAPH_USERNAME, password: process.env.TIGERGRAPH_PASSWORD }
 }
+function authHeaders(value: TigerGraphConfig) { const result: Record<string, string> = { accept: 'application/json', 'content-type': 'application/json' }; if (value.apiToken) result.Authorization = `Bearer ${value.apiToken}`; return result }
+async function tigerFetch<T>(endpoint: string, init: RequestInit = {}) { const value = config(); if (!value) throw new Error('TigerGraph is not configured. Set TIGERGRAPH_HOST and TIGERGRAPH_GRAPH_NAME.'); const response = await fetch(`${value.host}${endpoint}`, { ...init, headers: { ...authHeaders(value), ...(init.headers ?? {}) }, signal: AbortSignal.timeout(8000), cache: 'no-store' }); const text = await response.text(); let body: unknown = null; try { body = text ? JSON.parse(text) : null } catch { body = text }; if (!response.ok) throw new Error(`TigerGraph request failed (${response.status})`); return body as T }
+const graphPath = (graph: string) => `/restpp/graph/${encodeURIComponent(graph)}`
 
-function headers(value: TigerGraphConfig) {
-  const result: Record<string, string> = { accept: 'application/json' }
-  if (value.apiToken) result.Authorization = `Bearer ${value.apiToken}`
-  return result
-}
+export async function checkTigerGraph(): Promise<{ status: TigerGraphStatus; graph_name?: string; message: string }> { const value = config(); if (!value) return { status: 'UNCONFIGURED', message: 'TigerGraph is not configured.' }; try { await tigerFetch(`${graphPath(value.graphName)}/vertices/Customer?limit=1`); return { status: 'AUTHENTICATED', graph_name: value.graphName, message: `TigerGraph authenticated: ${value.graphName}` } } catch (error) { return { status: 'CONFIGURED_BUT_UNREACHABLE', graph_name: value.graphName, message: error instanceof Error ? error.message : 'TigerGraph request failed' } } }
 
-async function tigerFetch<T>(path: string, init: RequestInit = {}) {
-  const value = config()
-  if (!value) throw new Error('TigerGraph is not configured. Set TIGERGRAPH_HOST and TIGERGRAPH_GRAPH_NAME.')
-  const response = await fetch(`${value.host}${path}`, { ...init, headers: { ...headers(value), ...(init.headers ?? {}) }, signal: AbortSignal.timeout(8000), cache: 'no-store' })
-  const text = await response.text()
-  let body: unknown = null
-  try { body = text ? JSON.parse(text) : null } catch { body = text }
-  if (!response.ok) throw new Error(`TigerGraph request failed (${response.status})`)
-  return body as T
-}
+export async function queryInvestigationGraph(input: { transactionId: number; customerId: string; cardId: string }): Promise<GraphEvidence> { const value = config(); const ids = [String(input.transactionId), input.customerId, input.cardId]; if (!value) return { source: 'TigerGraph', status: 'unavailable', query: 'transaction_investigation', entity_ids: ids, error: 'TigerGraph is not configured.' }; try { const transaction = await tigerFetch(`${graphPath(value.graphName)}/vertices/Transaction/${encodeURIComponent(String(input.transactionId))}?select=*`); return { source: 'TigerGraph', status: 'available', query: 'transaction_investigation', entity_ids: ids, claim: 'Authenticated TigerGraph returned the transaction neighborhood root vertex.', evidence: transaction } } catch (error) { return { source: 'TigerGraph', status: 'unavailable', query: 'transaction_investigation', entity_ids: ids, error: error instanceof Error ? error.message : 'TigerGraph query failed' } } }
 
-export async function checkTigerGraph(): Promise<{ status: TigerGraphStatus; graph_name?: string; message: string }> {
-  const value = config()
-  if (!value) return { status: 'not_configured', message: 'TigerGraph not configured. No graph query was attempted.' }
-  try {
-    await tigerFetch(`/restpp/graph/${encodeURIComponent(value.graphName)}/vertices/Customer?limit=1`)
-    return { status: 'connected', graph_name: value.graphName, message: `TigerGraph connected: ${value.graphName}` }
-  } catch (error) {
-    return { status: 'connection_failed', graph_name: value.graphName, message: error instanceof Error ? error.message : 'TigerGraph connection failed' }
-  }
-}
+export async function writeCaseToTigerGraph(input: { caseId: string; customerId: string; cardId: string; transactionId: number; outcome: string; exposure: number }) { const value = config(); if (!value) return { written: false, error: 'TigerGraph is not configured.' }; try { const body = { vertices: { ClosedCase: { [input.caseId]: { case_id: { value: input.caseId }, outcome: { value: input.outcome }, exposure_usd: { value: input.exposure } } } }, edges: { 'ClosedCase': { [input.caseId]: { 'INVOLVES': { Transaction: { [String(input.transactionId)]: {} } }, 'ON_CARD': { Card: { [input.cardId]: {} } } } } } }; await tigerFetch(`${graphPath(value.graphName)}/vertices`, { method: 'POST', body: JSON.stringify(body) }); return { written: true, graph_case_id: input.caseId } } catch (error) { return { written: false, error: error instanceof Error ? error.message : 'TigerGraph write failed' } } }
 
-export async function queryInvestigationGraph(input: { transactionId: number; customerId: string; cardId: string }): Promise<GraphEvidence> {
-  const value = config()
-  if (!value) return { source: 'TigerGraph', status: 'unavailable', query: 'transaction_investigation', entity_ids: [String(input.transactionId), input.customerId, input.cardId], error: 'TigerGraph not configured. Configure TIGERGRAPH_HOST, TIGERGRAPH_GRAPH_NAME, and authentication before graph queries.' }
-  try {
-    const transaction = await tigerFetch(`/restpp/graph/${encodeURIComponent(value.graphName)}/vertices/Transaction/${encodeURIComponent(String(input.transactionId))}?select=*&limit=1`)
-    return { source: 'TigerGraph', status: 'available', query: 'transaction_investigation', entity_ids: [String(input.transactionId), input.customerId, input.cardId], claim: 'TigerGraph returned the requested transaction vertex.', evidence: transaction }
-  } catch (error) {
-    return { source: 'TigerGraph', status: 'unavailable', query: 'transaction_investigation', entity_ids: [String(input.transactionId), input.customerId, input.cardId], error: error instanceof Error ? error.message : 'TigerGraph query failed' }
-  }
-}
-
+export async function executeAutoAction(action: string, reason: string) { const auto = new Set(['ALLOW_TRANSACTION','MONITOR_CARD','MONITOR_CONNECTED_CARDS','WARN_CUSTOMER','VERIFY_WITH_CUSTOMER','STEP_UP_AUTH','GENERATE_REPORT','CREATE_CASE','ESCALATE_TO_ANALYST','CLOSE_NO_FRAUD']); if (!auto.has(action)) return { action, route: 'L1/L2', execution_status: 'approval_required', reason }; return { action, route: 'AUTO', execution_status: 'executed', reason } }
 export function tigerGraphConfigStatus() { return config() ? 'configured' : 'not_configured' }
-
-export default { checkTigerGraph, queryInvestigationGraph, tigerGraphConfigStatus }
+export default { checkTigerGraph, queryInvestigationGraph, writeCaseToTigerGraph, executeAutoAction, tigerGraphConfigStatus }
