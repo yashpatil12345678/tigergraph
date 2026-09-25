@@ -3,10 +3,13 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { benchmarkCases } from '@/lib/fraud/case-data'
 import { runInvestigationAgent } from '@/lib/fraud/agent'
+import { dataFilesStatus } from '@/lib/data/investigation-data'
 
 export const runtime = 'nodejs'
 
 export async function POST() {
+  const readiness = dataFilesStatus()
+  if (readiness.status !== 'DATA_READY') return NextResponse.json({ status: 'DATA_INCOMPLETE', missing: readiness.files.filter((item) => !item.available).map((item) => item.file), directory: readiness.directory }, { status: 503 })
   const started = Date.now()
   const outputDir = path.join(process.cwd(), 'cases')
   await fs.mkdir(outputDir, { recursive: true })

@@ -6,13 +6,16 @@ export type TransactionRecord = CsvRecord & { TransactionID: string }
 export type IdentityRecord = CsvRecord & { TransactionID: string }
 export type ClosedCaseRecord = CsvRecord
 
+export type DatasetStatus = 'DATA_READY' | 'DATA_INCOMPLETE'
+
 export type InvestigationEvidence = {
   case: { case_id: string; customer_id: string; card_id: string; flagged_txn_id: number }
   flagged_transaction: TransactionRecord | null
   related_transactions: TransactionRecord[]
   identity_records: IdentityRecord[]
   historical_cases: ClosedCaseRecord[]
-  data_sources: { transactions: string; identity: string; closed_cases: string }
+  data_sources: { transactions: string; identity: string; closed_cases: string; case_pack: string }
+  data_status: DatasetStatus
   validation: { flagged_transaction_found: boolean; identity_available: boolean; historical_cases_found: boolean }
 }
 
@@ -45,7 +48,7 @@ const normalize = (value: unknown) => String(value ?? '').trim()
 const numeric = (value: string) => value === '' ? undefined : Number(value)
 
 export function getInvestigationEvidence(input: { case_id: string; customer_id: string; card_id: string; flagged_txn_id: number }): InvestigationEvidence {
-  const transactions = readCsv('transactions.csv'); const identity = readCsv('identity.csv'); const history = readCsv('closed_cases_history.csv')
+  const transactions = readCsv('transactions.csv'); const identity = readCsv('identity.csv'); const history = readCsv('closed_cases_history.csv'); const casePack = readCsv('case_pack.csv')
   const flaggedId = String(input.flagged_txn_id)
   const transactionRows = transactions.rows as TransactionRecord[]
   const flagged = transactionRows.find((row) => normalize(row.TransactionID) === flaggedId) ?? null
@@ -58,7 +61,8 @@ export function getInvestigationEvidence(input: { case_id: string; customer_id: 
     related_transactions: related,
     identity_records: identityRecords,
     historical_cases: historical,
-    data_sources: { transactions: transactions.available ? 'transactions.csv' : 'unavailable', identity: identity.available ? 'identity.csv' : 'unavailable', closed_cases: history.available ? 'closed_cases_history.csv' : 'unavailable' },
+    data_sources: { transactions: transactions.available ? 'transactions.csv' : 'unavailable', identity: identity.available ? 'identity.csv' : 'unavailable', closed_cases: history.available ? 'closed_cases_history.csv' : 'unavailable', case_pack: casePack.available ? 'case_pack.csv' : 'unavailable' },
+    data_status: transactions.available && identity.available && history.available && casePack.available ? 'DATA_READY' : 'DATA_INCOMPLETE',
     validation: { flagged_transaction_found: Boolean(flagged), identity_available: identityRecords.length > 0, historical_cases_found: historical.length > 0 },
   }
 }
@@ -70,7 +74,9 @@ export function transactionToInvestigationFields(transaction: TransactionRecord 
 }
 
 export function dataFilesStatus() {
-  return ['transactions.csv', 'identity.csv', 'closed_cases_history.csv'].map((file) => ({ file, available: fs.existsSync(path.join(dataDirectory(), file)), directory: dataDirectory() }))
+  const files = ['transactions.csv', 'identity.csv', 'closed_cases_history.csv', 'case_pack.csv']
+  const statuses = files.map((file) => ({ file, available: fs.existsSync(path.join(dataDirectory(), file)), directory: dataDirectory() }))
+  return { status: statuses.every((item) => item.available) ? 'DATA_READY' as const : 'DATA_INCOMPLETE' as const, directory: dataDirectory(), files: statuses }
 }
 
 export function validateEvidenceReferences(evidence: InvestigationEvidence) {
