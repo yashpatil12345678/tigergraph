@@ -1,0 +1,138 @@
+{
+  "case_id": "HHG-007",
+  "case": {
+    "status": "open",
+    "verdict": "uncertain",
+    "fraud_probability": 0.3,
+    "pattern": "none",
+    "affected_txn_ids": [
+      3514948
+    ],
+    "first_suspicious_txn_id": 3514948,
+    "connected_card_ids": [
+      "C09933-K2"
+    ],
+    "connected_device_profiles": [],
+    "exposure_usd": 0,
+    "evidence": [],
+    "similar_prior_cases": [],
+    "summary": "No documented multi-signal pattern was established from the available bounded evidence.",
+    "written_to_graph": false,
+    "graph_case_id": ""
+  },
+  "evidence_requests": [
+    {
+      "type": "additional_transaction_or_customer_evidence",
+      "reason": "Flagged transaction is unavailable in the supplied transaction source.",
+      "expected_decision_impact": "A longer window or verification could materially change the recommendation.",
+      "simulated": false
+    }
+  ],
+  "next_best_actions": {
+    "initial": [
+      {
+        "action": "MONITOR_CARD",
+        "route": "AUTO",
+        "reason": "Initial triage uses the trigger and preserves uncertainty before stronger action.",
+        "policy_rule": "R1",
+        "status": "executed",
+        "evidence_ids": [
+          "txn-flagged"
+        ]
+      }
+    ],
+    "final": [
+      {
+        "action": "ESCALATE_TO_ANALYST",
+        "route": "AUTO",
+        "reason": "Material uncertainty remains and no customer response is available.",
+        "policy_rule": "R8",
+        "status": "executed",
+        "evidence_ids": [
+          "txn-flagged"
+        ]
+      }
+    ],
+    "what_changed": "Initial triage was reassessed after transaction, identity, historical, and TigerGraph tool results.",
+    "pattern": "none"
+  },
+  "sar": {
+    "file": false,
+    "reason": "",
+    "narrative": "",
+    "subjects": [],
+    "total_amount_usd": 0,
+    "activity_dates": []
+  },
+  "stop_reason": "Further evidence may change the decision; investigation stopped at the bounded evidence boundary.",
+  "tool_calls": [
+    {
+      "name": "get_case",
+      "input": {
+        "case_id": "HHG-007"
+      },
+      "status": "success",
+      "provenance": "case_pack.csv"
+    },
+    {
+      "name": "get_transaction",
+      "input": {
+        "TransactionID": 3514948
+      },
+      "status": "unavailable",
+      "provenance": "Flagged transaction was not found in transactions.csv"
+    },
+    {
+      "name": "get_customer_history",
+      "input": {
+        "customer_id": "C09933"
+      },
+      "status": "unavailable",
+      "provenance": "0 bounded related transaction(s) returned"
+    },
+    {
+      "name": "get_card_history",
+      "input": {
+        "card_id": "C09933-K2"
+      },
+      "status": "unavailable",
+      "provenance": "Card history derived from the same bounded transaction query"
+    },
+    {
+      "name": "get_identity",
+      "input": {
+        "TransactionID": 3514948
+      },
+      "status": "unavailable",
+      "provenance": "No identity record available for the flagged TransactionID"
+    },
+    {
+      "name": "graph_investigate_transaction",
+      "input": {
+        "TransactionID": 3514948
+      },
+      "status": "unavailable",
+      "provenance": "TigerGraph not configured. Configure TIGERGRAPH_HOST, TIGERGRAPH_GRAPH_NAME, and authentication before graph queries."
+    },
+    {
+      "name": "find_similar_closed_cases",
+      "input": {
+        "case_id": "HHG-007",
+        "customer_id": "C09933",
+        "card_id": "C09933-K2"
+      },
+      "status": "unavailable",
+      "provenance": "0 historical case(s) retrieved"
+    },
+    {
+      "name": "request_additional_evidence",
+      "input": {
+        "type": "additional_transaction_or_customer_evidence"
+      },
+      "status": "success",
+      "provenance": "Evidence request recorded; no response was invented."
+    }
+  ],
+  "tokens": 0,
+  "latency_s": 0
+}
